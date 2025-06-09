@@ -1,6 +1,7 @@
 import json
 import socketserver
-
+import faiss
+import os
 from card_picker import CardPicker
 from model import LeroModel
 from test_script.config import LERO_DUMP_CARD_FILE
@@ -10,7 +11,22 @@ from utils import (OptState, PlanCardReplacer, get_tree_signature, print_log,
 
 class LeroJSONHandler(socketserver.BaseRequestHandler):
     def setup(self):
-        pass
+        super().setup()
+        self.embedding_dim = 64
+        self.faiss_index = None
+        self.embeddings = []
+        self.init_faiss()
+
+    def init_faiss(self):
+        """Initialize or load FAISS index"""
+        self.faiss_index = faiss.IndexFlatL2(self.embedding_dim)
+        if os.path.exists("plan_embeddings.faiss"):
+            self.faiss_index = faiss.read_index("plan_embeddings.faiss")
+
+    def save_faiss_index(self):
+        """Save FAISS index to disk"""
+        if self.faiss_index is not None:
+            faiss.write_index(self.faiss_index, "plan_embeddings.faiss")
 
     def handle(self):
         str_buf = ""
@@ -34,6 +50,20 @@ class LeroJSONHandler(socketserver.BaseRequestHandler):
                         break
 
     def handle_msg(self, json_msg):
+        activation = {}
+
+        def getActivation(name):
+            def hook(model, input, output):
+                activation[name] = output[0].detach().cpu().numpy()  # Convert to numpy
+            return hook
+        
+        if (self.server.model is not None and
+                self.server.model._net is not None):
+            h = self.server.model._net.module.tree_conv[8].register_forward_hook(getActivation('DynamicPooling'))
+        else:
+            print("No model found, skipping forward hook registration")
+            h = None
+        
         json_obj = json.loads(json_msg)
         msg_type = json_obj['msg_type']
         reply_msg = {}
@@ -42,6 +72,13 @@ class LeroJSONHandler(socketserver.BaseRequestHandler):
                 self._init(json_obj, reply_msg)
             elif msg_type == "guided_optimization":
                 self._guided_optimization(json_obj, reply_msg)
+                if 'DynamicPooling' in activation:
+                    # Save the embedding to FAISS index
+                    embedding = activation['DynamicPooling']
+                    self.embeddings.append(embedding)
+                    if self.faiss_index is not None:
+                        self.faiss_index.add(embedding.reshape(1, -1).astype('float32'))
+                        self.save_faiss_index()
             elif msg_type == "predict":
                 self._predict(json_msg, reply_msg)
             elif msg_type == "join_card":
@@ -70,7 +107,7 @@ class LeroJSONHandler(socketserver.BaseRequestHandler):
         print("init query", qid)
         card_picker = CardPicker(json_obj['rows_array'], json_obj['table_array'],
                                 self.server.swing_factor_lower_bound, self.server.swing_factor_upper_bound, self.server.swing_factor_step)
-        print(json_obj['table_array'], json_obj['rows_array'])
+        # print(json_obj['table_array'], json_obj['rows_array'])
         plan_card_replacer = PlanCardReplacer(json_obj['table_array'], json_obj['rows_array'])
         opt_state = OptState(card_picker, plan_card_replacer, self.server.dump_card)
         
@@ -128,12 +165,11 @@ class LeroJSONHandler(socketserver.BaseRequestHandler):
     def _remove_state(self, json_obj, reply_msg):
         qid = json_obj['query_id']
         if self.server.dump_card:
-            print("dump cardinalities and plan scores of query:", qid)
             self._dump_card_with_score(self.server.opt_state_dict[qid].card_list_with_score)
 
         del self.server.opt_state_dict[qid]
         reply_msg['msg_type'] = "succ"
-        print("remove state: qid =", qid)
+        # print("remove state: qid =", qid)
 
     def _dump_card_with_score(self, card_list_with_score):
         with open(self.server.dump_card_with_score_path, "w") as f:
@@ -141,7 +177,6 @@ class LeroJSONHandler(socketserver.BaseRequestHandler):
                      for (cards, score) in card_list_with_score]
             w_str = "\n".join(w_str)
             f.write(w_str)
-
 
 def start_server(listen_on, port, model: LeroModel):
     with socketserver.TCPServer((listen_on, port), LeroJSONHandler) as server:
@@ -164,7 +199,6 @@ def start_server(listen_on, port, model: LeroModel):
         server.dump_card_with_score_path = LERO_DUMP_CARD_FILE
 
         server.serve_forever()
-
 
 if __name__ == "__main__":
     config = read_config()

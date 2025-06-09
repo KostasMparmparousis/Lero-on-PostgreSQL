@@ -18,6 +18,8 @@ def run_query(q, run_args):
     result = None
     try:
         cur = conn.cursor()
+        cur.execute("SET lero_server_host TO '" + LERO_SERVER_HOST + "'")
+        cur.execute("SET lero_server_port TO " + str(LERO_SERVER_PORT))
         if run_args is not None and len(run_args) > 0:
             for arg in run_args:
                 cur.execute(arg)
@@ -84,6 +86,15 @@ def save_history(q, encoded_q_str, plan_str, encoded_plan_str, latency_str):
 
 def explain_query(q, run_args, contains_cost = False):
     q = "EXPLAIN (COSTS " + ("" if contains_cost else "False") + ", FORMAT JSON, SUMMARY) " + (q.strip().replace("\n", " ").replace("\t", " "))
+    _, plan_json = run_query(q, run_args)
+    plan_json = plan_json[0][0]
+    if len(plan_json) == 2:
+        # remove bao's prediction
+        plan_json = [plan_json[1]]
+    return plan_json
+
+def explain_analyze_query(q, run_args):
+    q = "EXPLAIN (ANALYZE, FORMAT JSON) " + (q.strip().replace("\n", " ").replace("\t", " "))
     _, plan_json = run_query(q, run_args)
     plan_json = plan_json[0][0]
     if len(plan_json) == 2:
@@ -179,6 +190,8 @@ def do_run_query(sql, query_name, run_args, latency_file, write_latency_file = T
 
         exec_time = latency_json[0]["Execution Time"]
         print(time(), query_name, exec_time, flush=True)
+        return latency_json
+
     except Exception as e:
         with open(latency_file + "_error", "a+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)

@@ -25,13 +25,13 @@ def find_sql_files(directory):
     for root, _, files in os.walk(directory):
         for file in files:
             if file.endswith('.sql'):
-                print(f"Found SQL file: {file} in {root}")
                 full_path = os.path.join(root, file)
                 file_paths.append(full_path)
                 queryIDs.append(file[:-4])  # Remove .sql extension for queryID
                 sql_files.append(open(full_path, 'r').read())
     return [queryIDs, file_paths, sql_files]
 
+NUM_EXECUTIONS = 3
 # python test.py --query_path ../reproduce/test_query/stats.txt --output_query_latency_file stats.test
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Model training helper")
@@ -46,12 +46,15 @@ if __name__ == "__main__":
         queryID = test_queries[0][i]
         fp = test_queries[1][i]
         q = test_queries[2][i]
-        query_plan = do_run_query(q, fp, ["SET enable_lero TO True", f"SET lero_server_host TO '{LERO_SERVER_HOST}'", f"SET lero_server_port TO {LERO_SERVER_PORT}"], args.output_query_latency_file, True, None, None)
-        print(f"Query {queryID} executed successfully.")
-        if query_plan is not None:
-            lero_dir = ensure_lero_directory(fp)
-            output_path = os.path.join(lero_dir, f"{queryID}_plan.json")
-            save_plan(query_plan, output_path)
-            print(f"Execution plan for {queryID} saved to {output_path}.")
-        else:
-            print(f"Failed to execute query {queryID}.")
+        count = 0
+        lero_dir = ensure_lero_directory(fp)
+        while count < NUM_EXECUTIONS:
+            query_plan = do_run_query(q, fp, ["SET enable_lero TO True", f"SET lero_server_host TO '{LERO_SERVER_HOST}'", f"SET lero_server_port TO {LERO_SERVER_PORT}"], args.output_query_latency_file, True, None, None)
+            if query_plan is not None:
+                output_path = os.path.join(lero_dir, f"run{count+1}" ,f"{queryID}_plan.json")
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                save_plan(query_plan, output_path)
+                print(f"Execution plan for {queryID} saved to {output_path}.")
+            else:
+                print(f"Failed to execute query {queryID}.")
+            count += 1

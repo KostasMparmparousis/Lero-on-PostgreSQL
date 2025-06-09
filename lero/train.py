@@ -71,9 +71,8 @@ def compute_rank_score(path, pretrain=False, rank_score_type=0):
     return X, Y
 
 
-def training_pairwise(tuning_model_path, model_name, training_data_file, pretrain=False):
+def training_pairwise(tuning_model_path, model_name, training_data_file, pretrain=False, checkpoint_path=None):
     X1, X2 = _load_pairwise_plans(training_data_file)
-
     tuning_model = tuning_model_path is not None
     lero_model = None
     if tuning_model:
@@ -102,9 +101,12 @@ def training_pairwise(tuning_model_path, model_name, training_data_file, pretrai
 
     print("saving model...")
     lero_model.save(model_name)
+    if checkpoint_path is not None:
+        print("saving checkpoint...")
+        lero_model.save(checkpoint_path)
 
 
-def training_with_rank_score(tuning_model_path, model_name, training_data_file, pretrain=False, rank_score_type=0):
+def training_with_rank_score(tuning_model_path, model_name, training_data_file, pretrain=False, rank_score_type=0, checkpoint_path=None):
     X, Y = compute_rank_score(training_data_file, pretrain, rank_score_type)
 
     tuning_model = tuning_model_path is not None
@@ -130,9 +132,11 @@ def training_with_rank_score(tuning_model_path, model_name, training_data_file, 
 
     print("saving model...")
     lero_model.save(model_name)
+    if checkpoint_path is not None:
+        print("saving checkpoint...")
+        lero_model.save(checkpoint_path)
 
-
-def training_pointwise(tuning_model_path, model_name, training_data_file):
+def training_pointwise(tuning_model_path, model_name, training_data_file, checkpoint_path=None):
     X = _load_pointwise_plans(training_data_file)
 
     tuning_model = tuning_model_path is not None
@@ -157,7 +161,9 @@ def training_pointwise(tuning_model_path, model_name, training_data_file):
 
     print("saving model...")
     lero_model.save(model_name)
-
+    if checkpoint_path is not None:
+        print("saving checkpoint...")
+        lero_model.save(checkpoint_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Model training helper")
@@ -168,6 +174,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str)
     parser.add_argument("--pretrain_model_name", type=str)
     parser.add_argument("--rank_score_training_type", type=int)
+    parser.add_argument("--checkpoint_path", type=str, default=None)
 
     args = parser.parse_args()
 
@@ -190,6 +197,11 @@ if __name__ == "__main__":
     if args.pretrain_model_name is not None:
         pretrain_model_name = args.pretrain_model_name
     print("pretrain_model_name:", pretrain_model_name)
+    
+    checkpoint_path = None
+    if args.checkpoint_path is not None:
+        checkpoint_path = args.checkpoint_path
+    print("checkpoint_path:", checkpoint_path)
 
     rank_score_training_type = 0
     if args.rank_score_training_type is not None:
@@ -198,22 +210,22 @@ if __name__ == "__main__":
 
     if training_type == 0:
         print("training_pointwise")
-        training_pointwise(pretrain_model_name, model_name, training_data)
+        training_pointwise(pretrain_model_name, model_name, training_data, checkpoint_path)
     elif training_type == 1:
         print("training_pairwise")
         training_pairwise(pretrain_model_name, model_name,
-                          training_data, False)
+                          training_data, False, checkpoint_path)
     elif training_type == 2:
         print("training_with_rank_score")
         training_with_rank_score(
-            pretrain_model_name, model_name, training_data, False, rank_score_training_type)
+            pretrain_model_name, model_name, training_data, False, rank_score_training_type, checkpoint_path)
     elif training_type == 3:
         print("pre-training_pairwise")
         training_pairwise(pretrain_model_name, model_name,
-                          training_data, True)
+                          training_data, True, checkpoint_path)
     elif training_type == 4:
         print("pre-training_with_rank_score")
         training_with_rank_score(
-            pretrain_model_name, model_name, training_data, True, rank_score_training_type)
+            pretrain_model_name, model_name, training_data, True, rank_score_training_type, checkpoint_path)
     else:
         raise Exception()

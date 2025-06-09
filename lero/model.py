@@ -14,7 +14,8 @@ from TreeConvolution.tcnn import (BinaryTreeConv, DynamicPooling,
 from TreeConvolution.util import prepare_trees
 
 CUDA = torch.cuda.is_available()
-GPU_LIST = [0, 1, 2, 3, 4, 5, 6, 7]
+# GPU_LIST = [0, 1, 2, 3, 4, 5, 6, 7]
+GPU_LIST = [0, 1]
 
 torch.set_default_tensor_type(torch.DoubleTensor)
 device = torch.device("cuda:0" if CUDA else "cpu")
@@ -109,7 +110,11 @@ class LeroModel():
 
         self._net = LeroNet(self._input_feature_dim)
         if CUDA:
+            self._net = self._net.cuda(device)
+            # Load state dict first
             self._net.load_state_dict(torch.load(_nn_path(path)))
+            # Then wrap with DataParallel
+            self._net = torch.nn.DataParallel(self._net, device_ids=GPU_LIST)
         else:
             self._net.load_state_dict(torch.load(
                 _nn_path(path), map_location=torch.device('cpu')))

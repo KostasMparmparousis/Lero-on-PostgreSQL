@@ -13,8 +13,6 @@ import psycopg2
 import json
 import sys
 import shutil
-from pathlib import Path
-import subprocess
 
 class PolicyEntity:
     def __init__(self, score) -> None:
@@ -46,7 +44,7 @@ class PgHelper():
 
 class LeroHelper():
     def __init__(self, queries, query_num_per_chunk, output_query_latency_file, 
-                test_queries, model_prefix, topK, workload_dir) -> None:
+                test_queries, model_prefix, topK) -> None:
         self.queries = queries
         self.query_num_per_chunk = query_num_per_chunk
         self.output_query_latency_file = output_query_latency_file
@@ -56,11 +54,8 @@ class LeroHelper():
         self.lero_server_path = LERO_SERVER_PATH
         self.lero_card_file_path = os.path.join(LERO_SERVER_PATH, LERO_DUMP_CARD_FILE)
 
-        parent_dir = os.path.dirname(workload_dir)
-        model_dir = Path(parent_dir).parent
-
         # Create checkpoint directory
-        self.checkpoint_dir = os.path.join(model_dir, "models/lero/random/checkpoints")
+        self.checkpoint_dir = os.path.join("/data/hdd1/users/kmparmp/models/lero/", "job")
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         self.all_checkpoints = []
 
@@ -70,8 +65,7 @@ class LeroHelper():
             yield lst[i:i + n]
 
     def start(self, pool_num):
-        REPEAT_COUNT = 5
-        query_sequence = self.queries * REPEAT_COUNT
+        query_sequence = random.choices(self.queries, k=250)
         lero_chunks = list(self.chunks(query_sequence, self.query_num_per_chunk))
 
         run_args = self.get_run_args()
@@ -88,23 +82,15 @@ class LeroHelper():
             self.test_benchmark(self.output_query_latency_file + "_" + model_name)
 
     def retrain(self, model_name):
-        # Save checkpoint before retraining
-        checkpoint_path = os.path.join(self.checkpoint_dir, model_name)
         training_data_file = self.output_query_latency_file + ".training"
         create_training_file(training_data_file, self.output_query_latency_file, self.output_query_latency_file + "_exploratory")
         print("retrain Lero model:", model_name, "with file", training_data_file)
-
-        cmd = [
-            "python3.8", "train.py",
-            "--training_data", os.path.abspath(training_data_file),
-            "--model_name", model_name,
-            "--training_type", "1",
-            "--checkpoint_path", os.path.abspath(checkpoint_path)
-        ]
-        print("run cmd:", " ".join(cmd))
-        
-        with open("train_stdout.log", "a") as out, open("train_stderr.log", "a") as err:
-            subprocess.run(cmd, cwd=self.lero_server_path, stdout=out, stderr=err)
+        cmd_str = "cd " + self.lero_server_path + " && python3.8 train.py" \
+                                                + " --training_data " + os.path.abspath(training_data_file) \
+                                                + " --model_name " + model_name \
+                                                + " --training_type 1"
+        print("run cmd:", cmd_str)
+        os.system(cmd_str)
 
         self.load_model(model_name)
         return model_name
@@ -128,12 +114,7 @@ class LeroHelper():
 
     def get_run_args(self):
         run_args = []
-        # LERO configuration
-        run_args = [
-            "SET enable_lero TO True",
-            f"SET lero_server_host TO '{LERO_SERVER_HOST}'",
-            f"SET lero_server_port TO {LERO_SERVER_PORT}"
-        ]        
+        run_args.append("SET enable_lero TO True")
         return run_args
 
     def get_card_test_args(self, card_file_name):
@@ -150,7 +131,7 @@ class LeroHelper():
             with psycopg2.connect(DATABASE_URL) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT write_lero_card_file(%s, %s)",
+                        "SELECT write_card_lero_file(%s, %s)",
                         (file_name, content)
                     )
                     success = cur.fetchone()[0]
@@ -160,8 +141,67 @@ class LeroHelper():
             print(f"Error writing card file via UDF: {str(e)}")
             raise
 
+    def _extract_tables_and_rows(self, plan):
+        """Extract tables and their row counts from the plan"""
+        tables = []
+        rows = []
+        
+        def _extract(node):
+            if 'Relation Name' in node:
+                tables.append(node['Relation Name'])
+                rows.append(node['Plan Rows'])
+            if 'Plans' in node:
+                for child in node['Plans']:
+                    _extract(child)
+        
+        _extract(plan)
+        return tables, rows
+
+    def _initialize_query_state(self, qid, tables, rows):
+        """Initialize the query state on server"""
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((LERO_SERVER_HOST, LERO_SERVER_PORT))
+        
+        init_msg = {
+            "msg_type": "init",
+            "query_id": qid,
+            "table_array": [[t] for t in tables],  # Format expected by server
+            "rows_array": rows
+        }
+        s.sendall(bytes(json.dumps(init_msg) + "*LERO_END*", "utf-8"))
+        reply = json.loads(s.recv(1024))
+        s.close()
+        
+        if reply['msg_type'] != 'succ':
+            raise RuntimeError(f"Failed to initialize query {qid}")
+
     def run_pairwise(self, q, fp, run_args, output_query_latency_file, exploratory_query_latency_file, pool):
-        explain_query(q, run_args)
+        # First get the explain plan to extract table/row information
+        init_plan = explain_query(q, run_args)
+        
+        # Extract tables and row counts from the plan
+        tables, rows = self._extract_tables_and_rows(init_plan)
+        
+        # Initialize the query state on server
+        self._initialize_query_state(fp, tables, rows)
+        
+        # Now perform guided optimization
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((LERO_SERVER_HOST, LERO_SERVER_PORT))
+        
+        guided_msg = {
+            "msg_type": "guided_optimization",
+            "query_id": fp,
+            "Plan": init_plan
+        }
+        s.sendall(bytes(json.dumps(guided_msg) + "*LERO_END*", "utf-8"))
+        reply = json.loads(s.recv(8192))
+        s.close()
+        
+        # Now the card file should be populated
+        if not os.path.exists(self.lero_card_file_path):
+            raise FileNotFoundError(f"Card file {self.lero_card_file_path} not generated")
+    
         policy_entities = []
         with open(self.lero_card_file_path, 'r') as f:
             lines = f.readlines()
@@ -171,15 +211,16 @@ class LeroHelper():
 
         policy_entities = sorted(policy_entities, key=lambda x: x.get_score())
         policy_entities = policy_entities[:self.topK]
-        # exit(0)
+
         i = 0
+        print("policy_entities:", policy_entities)
+        exit()
         for entity in policy_entities:
             if isinstance(entity, CardinalityGuidedEntity):
                 card_str = "\n".join(entity.card_str.strip().split(" "))
                 # ensure that the cardinality file will not be changed during planning
                 card_file_name = "lero_" + fp + "_" + str(i) + ".txt"
-                #card_file_path = os.path.join(PG_DB_PATH, card_file_name)
-                card_file_path = os.path.join("cardinalities", card_file_name)
+                card_file_path = os.path.join(PG_DB_PATH, card_file_name)
                 with open(card_file_path, "w") as card_file:
                     card_file.write(card_str)
 
@@ -196,61 +237,33 @@ class LeroHelper():
         reply_json = json.loads(s.recv(1024))
         assert reply_json['msg_type'] == 'succ'
         s.close()
+        print("response from server:", reply_json)
         print(reply_json)
         os.system("sync")
         return reply_json['latency']
 
-def load_queries_from_directory(directory_path, test_split=0.2, workload_order_file=None):
+def load_queries_from_directory(directory_path, test_split=0.2):
     """Load SQL queries from .sql files in a directory and split into train/test sets"""
     query_files = glob.glob(os.path.join(directory_path, "*.sql"))
+    queries = []
     
-    if workload_order_file:
-        # Load ordered queries from the workload order file
-        with open(workload_order_file, 'r') as f:
-            ordered_files = [line.strip() for line in f if line.strip()]
-        
-        # Create full paths for ordered files
-        train_queries = []
-        for filename in ordered_files:
-            full_path = os.path.join(directory_path, filename)
-            if os.path.exists(full_path):
-                with open(full_path, 'r') as qf:
-                    query = qf.read().strip()
-                    if query:
-                        train_queries.append((filename, query))
-            else:
-                print(f"Warning: Query file {filename} from order file not found in directory")
-        
-        # All other queries become test queries
-        remaining_files = set(os.path.basename(f) for f in query_files) - set(ordered_files)
-        test_queries = []
-        for filename in remaining_files:
-            full_path = os.path.join(directory_path, filename)
-            with open(full_path, 'r') as qf:
-                query = qf.read().strip()
-                if query:
-                    test_queries.append((filename, query))
-        
-        print(f"Loaded {len(train_queries)} training queries (from order file) "
-              f"and {len(test_queries)} test queries")
-    else:
-        # Original random split behavior
-        queries = []
-        for file_path in query_files:
-            with open(file_path, 'r') as f:
-                query = f.read().strip()
-                if query:
-                    file_name = os.path.basename(file_path)
-                    queries.append((file_name, query))
-        
-        random.shuffle(queries)
-        split_idx = int(len(queries) * (1 - test_split))
-        train_queries = queries[:split_idx]
-        test_queries = queries[split_idx:]
-        print(f"Randomly split into {len(train_queries)} training queries "
-              f"and {len(test_queries)} test queries")
+    for file_path in query_files:
+        with open(file_path, 'r') as f:
+            query = f.read().strip()
+            if query:  # Only add non-empty queries
+                file_name = os.path.basename(file_path)
+                queries.append((file_name, query))
+    
+    # Shuffle queries for random split
+    random.shuffle(queries)
+    
+    # Calculate split index
+    split_idx = int(len(queries) * (1 - test_split))
+    train_queries = queries[:split_idx]
+    test_queries = queries[split_idx:]
     
     return train_queries, test_queries
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Model training helper")
@@ -259,31 +272,21 @@ if __name__ == "__main__":
                         help="Directory containing SQL query files")
     parser.add_argument("--test_split",
                         type=float,
-                        default=0.0,
-                        help="Fraction of queries to use for testing (default: 0.0)")
+                        default=0.2,
+                        help="Fraction of queries to use for testing (default: 0.2)")
     parser.add_argument("--algo", type=str)
     parser.add_argument("--query_num_per_chunk", type=int)
     parser.add_argument("--output_query_latency_file", metavar="PATH")
     parser.add_argument("--model_prefix", type=str)
     parser.add_argument("--pool_num", type=int)
     parser.add_argument("--topK", type=int)
-    parser.add_argument("--workload_order_file",
-                    metavar="PATH",
-                    help="Text file specifying the order of training queries")    
     args = parser.parse_args()
 
     query_dir = args.query_dir
     test_split = args.test_split
-    workload_order_file = args.workload_order_file
     print(f"Load queries from directory {query_dir}, test split = {test_split}")
-    if workload_order_file:
-        print(f"Using workload order from: {workload_order_file}")
     
-    queries, test_queries = load_queries_from_directory(
-        query_dir, 
-        test_split,
-        workload_order_file
-    )
+    queries, test_queries = load_queries_from_directory(query_dir, test_split)
     print(f"Read {len(queries)} training queries and {len(test_queries)} test queries.")
     output_query_latency_file = args.output_query_latency_file
     print("output_query_latency_file:", output_query_latency_file)
@@ -322,5 +325,5 @@ if __name__ == "__main__":
             topK = args.topK
         print("topK", topK)
         
-        helper = LeroHelper(queries, query_num_per_chunk, output_query_latency_file, test_queries, model_prefix, topK, query_dir)
+        helper = LeroHelper(queries, query_num_per_chunk, output_query_latency_file, test_queries, model_prefix, topK)
         helper.start(pool_num)
