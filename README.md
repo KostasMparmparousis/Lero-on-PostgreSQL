@@ -5,6 +5,54 @@
    conda env create -f environment.yml
    conda activate lero
    ```
+
+## Training Guide
+
+1. Start the Lero server:
+   ```bash
+   cd lero && python3 server.py
+   ```
+
+2. In another terminal, go to the directory with the training script:
+    ```bash
+    cd lero/test_script
+    ```
+
+3. Configure the model checkpoint path in `train_model.py` (line 63):
+   ```python
+   self.checkpoint_dir = = "/your/path/here"  # Update this path to where you wish for the checkpoints to be saved
+   ```
+
+4. Run the training script:
+   ```bash
+   python train_model.py --query_dir <path/to/all/queries/> --test_split 0.2 \ 
+   --algo lero --query_num_per_chunk 20 --output_query_latency_file lero_job.log --model_prefix job_test_model --topK 3
+   ```
+
+## Testing guide
+
+1. Configure the model checkpoint path in `server.conf` (line 8):
+   ```bash
+   ModelPath = /your/path/here
+   ```
+
+2. Start the Lero server:
+   ```bash
+   cd lero && python3 server.py
+   ```
+
+2. In another terminal, go to the directory with the testing script and run it:
+    ```bash
+    cd lero/test_script
+    ```
+
+4. Run the testing script:
+   ```bash
+    python test.py \
+    --query_path /path/to/workload/experiment1/job/run1/ \ 
+    --output_query_latency_file stats.test
+   ```
+
 ---
 
 # Lero: A Learning-to-Rank Query Optimizer
