@@ -1,12 +1,3 @@
-## Setup Environment
-1. Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) if not already installed.
-2. Create and activate the environment:
-   ```bash
-   conda env create -f environment.yml
-   conda activate lero
-   ```
----
-
 # Lero: A Learning-to-Rank Query Optimizer
 Query optimizer is the core part, as well as the most challenging problem, in DBMS. 
 We witness that the relative order (or rank) of plans actually matters to optimizer. Learning the rough rank scores is much easier than the unique latency value. To this end, we design Lero, a new learned query optimizer system following the rank-based paradigm.  
