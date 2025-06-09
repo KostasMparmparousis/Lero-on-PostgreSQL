@@ -41,7 +41,7 @@
    cd lero && python3 server.py
    ```
 
-2. In another terminal, go to the directory with the testing script and run it:
+3. In another terminal, go to the directory with the testing script and run it:
     ```bash
     cd lero/test_script
     ```
