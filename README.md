@@ -20,7 +20,7 @@
 
 3. Configure the model checkpoint path in `train_model.py` (line 63):
    ```python
-   self.checkpoint_dir = = "/your/path/here"  # Update this path to where you wish for the checkpoints to be saved
+   self.checkpoint_dir = "/your/path/here"  # Update this path to where you wish for the checkpoints to be saved
    ```
 
 4. Run the training script:
