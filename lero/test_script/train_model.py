@@ -56,11 +56,8 @@ class LeroHelper():
         self.lero_server_path = LERO_SERVER_PATH
         self.lero_card_file_path = os.path.join(LERO_SERVER_PATH, LERO_DUMP_CARD_FILE)
 
-        parent_dir = os.path.dirname(workload_dir)
-        model_dir = Path(parent_dir).parent
-
         # Create checkpoint directory
-        self.checkpoint_dir = os.path.join(model_dir, "models/lero/random/checkpoints")
+        self.checkpoint_dir = Path("../../../../models/experiment5/5.1/complexity_generalization/LERO/checkpoints")
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         self.all_checkpoints = []
 

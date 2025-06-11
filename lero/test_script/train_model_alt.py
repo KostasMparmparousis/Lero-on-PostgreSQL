@@ -41,6 +41,7 @@ class PgHelper():
         pool.close()
         pool.join()
 
+from pathlib import Path
 
 class LeroHelper():
     def __init__(self, queries, query_num_per_chunk, output_query_latency_file, 
@@ -55,7 +56,7 @@ class LeroHelper():
         self.lero_card_file_path = os.path.join(LERO_SERVER_PATH, LERO_DUMP_CARD_FILE)
 
         # Create checkpoint directory
-        self.checkpoint_dir = os.path.join("/data/hdd1/users/kmparmp/models/lero/", "job")
+        self.checkpoint_dir = Path("../../models/experiment5/5.1/complexity_generalization/LERO/checkpoints")
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         self.all_checkpoints = []
 
