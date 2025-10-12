@@ -1,32 +1,21 @@
 import json
 import socketserver
-import faiss
 import os
 from card_picker import CardPicker
 from model import LeroModel
 from test_script.config import LERO_DUMP_CARD_FILE
 from utils import (OptState, PlanCardReplacer, get_tree_signature, print_log,
                    read_config)
+import threading
+import time
 
+# --- NEW: Define temp file for communication ---
+TEMP_EMBEDDING_FILE = "lero_last_embedding.json"
+TEMP_FILE_LOCK = threading.Lock()
 
 class LeroJSONHandler(socketserver.BaseRequestHandler):
     def setup(self):
         super().setup()
-        self.embedding_dim = 64
-        self.faiss_index = None
-        self.embeddings = []
-        self.init_faiss()
-
-    def init_faiss(self):
-        """Initialize or load FAISS index"""
-        self.faiss_index = faiss.IndexFlatL2(self.embedding_dim)
-        if os.path.exists("plan_embeddings.faiss"):
-            self.faiss_index = faiss.read_index("plan_embeddings.faiss")
-
-    def save_faiss_index(self):
-        """Save FAISS index to disk"""
-        if self.faiss_index is not None:
-            faiss.write_index(self.faiss_index, "plan_embeddings.faiss")
 
     def handle(self):
         str_buf = ""
@@ -59,26 +48,23 @@ class LeroJSONHandler(socketserver.BaseRequestHandler):
         
         if (self.server.model is not None and
                 self.server.model._net is not None):
+            model_exists = True
+            print("Model found, registering forward hook for DynamicPooling")
             h = self.server.model._net.module.tree_conv[8].register_forward_hook(getActivation('DynamicPooling'))
         else:
+            model_exists = False
             print("No model found, skipping forward hook registration")
             h = None
         
         json_obj = json.loads(json_msg)
         msg_type = json_obj['msg_type']
+        # print("Received message type:", msg_type)
         reply_msg = {}
         try:
             if msg_type == "init":
                 self._init(json_obj, reply_msg)
             elif msg_type == "guided_optimization":
                 self._guided_optimization(json_obj, reply_msg)
-                if 'DynamicPooling' in activation:
-                    # Save the embedding to FAISS index
-                    embedding = activation['DynamicPooling']
-                    self.embeddings.append(embedding)
-                    if self.faiss_index is not None:
-                        self.faiss_index.add(embedding.reshape(1, -1).astype('float32'))
-                        self.save_faiss_index()
             elif msg_type == "predict":
                 self._predict(json_msg, reply_msg)
             elif msg_type == "join_card":
@@ -98,6 +84,14 @@ class LeroJSONHandler(socketserver.BaseRequestHandler):
             reply_msg['msg_type'] = "error"
             reply_msg['error'] = str(e)
             print(e)
+
+        # # After any prediction-triggering message, write the captured embedding
+        # if model_exists and 'DynamicPooling' in activation:
+        #     embedding = activation['DynamicPooling']
+        #     embedding_data = {"embedding": embedding.tolist(), "timestamp": time.time()}
+        #     with TEMP_FILE_LOCK:
+        #         with open(TEMP_EMBEDDING_FILE, 'w') as f: json.dump(embedding_data, f)
+        #     print(f">>> Server wrote embedding to {TEMP_EMBEDDING_FILE}")
 
         self.request.sendall(bytes(json.dumps(reply_msg), "utf-8"))
         self.request.close()

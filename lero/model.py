@@ -20,6 +20,7 @@ GPU_LIST = [0, 1]
 torch.set_default_tensor_type(torch.DoubleTensor)
 device = torch.device("cuda:0" if CUDA else "cpu")
 
+LOSS_FILE_PATH = "last_training_loss.txt"
 
 def _nn_path(base):
     return os.path.join(base, "nn_weights")
@@ -207,6 +208,15 @@ class LeroModel():
             print("Epoch", epoch, "training loss:", loss_accum)
         print("training time:", time() - start_time, "batch size:", batch_size)
 
+        try:
+            # The final loss is the last recorded loss from the training loop
+            final_loss = losses[-1] if losses else -1.0
+            with open(LOSS_FILE_PATH, "w") as f:
+                f.write(str(final_loss))
+            print(f"Wrote final loss {final_loss} to {LOSS_FILE_PATH}")
+        except Exception as e:
+            print(f"ERROR: Could not write final loss. Error: {e}")        
+
     def predict(self, x):
         if CUDA:
             self._net = self._net.cuda(device)
@@ -314,4 +324,13 @@ class LeroModelPairWise(LeroModel):
 
             print("Epoch", epoch, "training loss:", loss_accum)
         print("training time:", time() - start_time, "batch size:", batch_size)
+
+        try:
+            final_loss = losses[-1] if losses else -1.0
+            with open(LOSS_FILE_PATH, "w") as f:
+                f.write(str(final_loss))
+            print(f"Wrote final loss {final_loss} to {LOSS_FILE_PATH}")
+        except Exception as e:
+            print(f"ERROR: Could not write final loss. Error: {e}")
+        
         

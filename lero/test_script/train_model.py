@@ -7,12 +7,8 @@ from config import *
 from multiprocessing import Pool
 import random
 import glob
-import pickle
-import time
 import psycopg2
 import json
-import sys
-import shutil
 from pathlib import Path
 import subprocess
 
@@ -57,7 +53,7 @@ class LeroHelper():
         self.lero_card_file_path = os.path.join(LERO_SERVER_PATH, LERO_DUMP_CARD_FILE)
 
         # Create checkpoint directory
-        self.checkpoint_dir = Path("../../../../models/experiment5/5.1/complexity_generalization/LERO/checkpoints")
+        self.checkpoint_dir = Path("../../../../models/experiment1/JOB/LERO/checkpoints")
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         self.all_checkpoints = []
 
@@ -67,9 +63,10 @@ class LeroHelper():
             yield lst[i:i + n]
 
     def start(self, pool_num):
-        REPEAT_COUNT = 5
+        REPEAT_COUNT = 8
         query_sequence = self.queries * REPEAT_COUNT
         lero_chunks = list(self.chunks(query_sequence, self.query_num_per_chunk))
+        print(f"Total chunks: {len(lero_chunks)}")
 
         run_args = self.get_run_args()
         for c_idx, chunk in enumerate(lero_chunks):
@@ -135,14 +132,14 @@ class LeroHelper():
 
     def get_card_test_args(self, card_file_name):
         run_args = []
-        run_args.append("SET lero_joinest_fname TO '" + card_file_name + "'")
+        run_args.append("SET lero_joinest_fname TO '" + CARDINALITY_FILE_REPOSITORY + "/" +card_file_name + "'")
         return run_args
 
     def write_card_file_via_udf(self, file_name, content):
         """Write cardinality file using PostgreSQL UDF"""
         try:
-            print(f"Writing card file {file_name} via UDF...")
-            print("content:", content)
+            # print(f"Writing card file {file_name} via UDF...")
+            # print("content:", content)
             # Connect to PostgreSQL and execute the UDF
             with psycopg2.connect(DATABASE_URL) as conn:
                 with conn.cursor() as cur:

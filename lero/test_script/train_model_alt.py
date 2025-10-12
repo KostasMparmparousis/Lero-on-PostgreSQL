@@ -7,12 +7,8 @@ from config import *
 from multiprocessing import Pool
 import random
 import glob
-import pickle
-import time
 import psycopg2
 import json
-import sys
-import shutil
 
 class PolicyEntity:
     def __init__(self, score) -> None:
