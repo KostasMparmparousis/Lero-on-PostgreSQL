@@ -158,10 +158,6 @@ class PgHelper():
         pool.join()
 
 
-# ==============================================================================
-# 2. LERO HELPER CLASS (REFACTORED FOR STANDARDIZED TRAINING)
-# ==============================================================================
-
 class LeroHelper():
     def __init__(self, queries, output_query_latency_file, test_queries, args):
         self.queries = queries
@@ -201,7 +197,6 @@ class LeroHelper():
         if resume_from_checkpoint:
             print("="*60, flush=True)
             print(f"ATTEMPTING TO RESUME TRAINING FROM: {resume_from_checkpoint}")
-            last_successful_model_path = resume_from_checkpoint
             checkpoint_name = os.path.basename(resume_from_checkpoint)
 
             # Regex to parse epoch, queries, and loss from the directory name

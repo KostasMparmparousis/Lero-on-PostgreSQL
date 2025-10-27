@@ -1,9 +1,41 @@
-# Postgresql conf (Please configure it according to your situation)
-PORT = 5471
-HOST = "train.darelab.athenarc.gr"
-USER = "postgres"
-PASSWORD = "71Vgfi4mUNPm"
+import os
+from dotenv import load_dotenv
+
+def load_repo_env():
+    """Load .env from the repo root, even if this file is deeply nested."""
+    current_dir = os.path.abspath(os.path.dirname(__file__))
+    while True:
+        env_path = os.path.join(current_dir, ".env")
+        if os.path.exists(env_path):
+            load_dotenv(env_path)
+            break
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir == current_dir:
+            raise FileNotFoundError(".env file not found.")
+        current_dir = parent_dir
+
+load_repo_env()
+
+# ✅ Database name (default to imdbload unless overridden)
 DB = "imdbload"
+HOST = os.getenv("DB_HOST", "localhost")
+USER = os.getenv("DB_USER", "postgres")
+PASSWORD = os.getenv("DB_PASS", "")
+
+db_lower = DB.lower()
+if "imdb" in db_lower:
+    PORT = int(os.getenv("IMDB_PORT", 5471))
+elif "tpch" in db_lower or "tpc_h" in db_lower:
+    PORT = int(os.getenv("TPCH_PORT", 5471))
+elif "tpcds" in db_lower or "tpc_ds" in db_lower:
+    PORT = int(os.getenv("TPCDS_PORT", 5471))
+elif "ssb" in db_lower:
+    PORT = int(os.getenv("SSB_PORT", 5468))
+elif "stack" in db_lower:
+    PORT = int(os.getenv("STACK_PORT", 5471))
+else:
+    PORT = 5432  # fallback
+
 # DB = "tpcds"
 CONNECTION_STR = "dbname=" + DB + " user=" + USER + " password=" + PASSWORD + " host=" + HOST + " port=" + str(PORT)
 DATABASE_URL = f"postgresql://{USER}:{PASSWORD}@{HOST}:{PORT}/{DB}"

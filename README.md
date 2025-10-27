@@ -1,195 +1,99 @@
-## Setup Environment
-1. Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) if not already installed.
-2. Create and activate the environment:
-   ```bash
-   conda env create -f environment.yml
-   conda activate lero
-   ```
+# Lero Optimizer
 
-## Training Guide
+This directory contains the implementation of Lero, a learned query optimizer that follows a learning-to-rank paradigm to select the best query plan.
 
-1. Start the Lero server:
-   ```bash
-   cd lero && python3 server.py
-   ```
+This guide provides instructions for using Lero within the evaluation suite.
 
-2. In another terminal, go to the directory with the training script:
+### Prerequisites
+
+1.  The main Docker environment for the evaluation suite must be built and running. It includes the version of PostgreSQL specifically patched for Lero.
+2.  You have a Conda installation (e.g., [Miniconda](https://docs.conda.io/en/latest/miniconda.html)).
+
+---
+
+## 1. Environment Setup
+
+All Lero commands must be run from a dedicated Conda environment.
+
+1.  **Navigate to the Lero directory:**
     ```bash
-    cd lero/test_script
+    cd optimizers/Lero-on-PostgreSQL/lero
+    ```
+2.  **Create and activate the Conda environment:**
+    ```bash
+    conda env create -f environment.yml
+    conda activate lero
     ```
 
-3. Configure the model checkpoint path in `train_model.py` (line 63):
-   ```python
-   self.checkpoint_dir = "/your/path/here"  # Update this path to where you wish for the checkpoints to be saved
-   ```
+---
 
-4. Run the training script:
-   ```bash
-   python train_model.py --query_dir <path/to/all/queries/> --test_split 0.2 \ 
-   --algo lero --query_num_per_chunk 20 --output_query_latency_file lero_job.log --model_prefix job_test_model --topK 3
-   ```
+## 2. Running Lero
 
-## Testing guide
+Lero uses a server-client model. You must start the Lero server in one terminal, then run training or testing scripts from a second terminal.
 
-1. Configure the model checkpoint path in `server.conf` (line 8):
-   ```bash
-   ModelPath = /your/path/here
-   ```
+### Step 0: Configure Scripts
+Before running, you must configure two files:
+1.  **`lero/server.conf`:** This file configures the server, including the `ModelPath` for **testing/inference**.
+2.  **`lero/test_script/config.py`:** This file configures the client scripts, including the database connection details. **Ensure this is set correctly before proceeding.**
 
-2. Start the Lero server:
-   ```bash
-   cd lero && python3 server.py
-   ```
+### General Training Command
+Training involves starting the server and then running the `train_model.py` script, which controls the training loop.
 
-3. In another terminal, go to the directory with the testing script and run it:
+1.  **Start the Lero Server:** In your first terminal:
     ```bash
-    cd lero/test_script
+    # From the lero/ directory
+    python3 server.py
     ```
+2.  **Configure Training Script:** In your second terminal, **edit `lero/test_script/train_model.py`**. Modify the `self.checkpoint_dir` variable on line 63 to your desired output directory for saving checkpoints.
+3.  **Run Training:** In the second terminal:
+    ```bash
+    cd test_script
+    python3 train_model.py --query_dir <path/to/queries/> --output_query_latency_file <log_file.log> --model_prefix <model_name> [other_args...]
+    ```
+    *   `--query_dir`: Path to the training workload.
+    *   `--output_query_latency_file`: The log file for executed plan latencies.
+    *   `--model_prefix`: A prefix for the saved model checkpoint files.
 
-4. Run the testing script:
-   ```bash
-    python test.py \
-    --query_path /path/to/workload/experiment1/job/run1/ \ 
-    --output_query_latency_file stats.test
-   ```
+### General Testing Command
+Testing involves configuring the server with a pre-trained model path, starting it, and then running the `test.py` script.
+
+1.  **Configure Server:** **Edit the `lero/server.conf` file**. Set the `ModelPath` variable on line 8 to the path of your pre-trained model.
+2.  **Start the Lero Server:** In your first terminal:
+    ```bash
+    # From the lero/ directory
+    python3 server.py
+    ```
+3.  **Run Testing:** In a second terminal:
+    ```bash
+    cd test_script
+    python3 test.py --query_path <path/to/test/queries/> --output_query_latency_file <results_file.log>
+    ```
+    *   `--query_path`: Path to the directory containing the test queries.
+    *   `--output_query_latency_file`: The file where test results will be logged.
+
+---
+
+## 3. Replicating Paper Experiments
+
+For the exact commands, model paths, and setup needed to generate the results for each experiment (E1-E5) in our paper, refer to the detailed guide below.
+
+👉 [**Lero Experiment Reproduction Commands**](experiments.md)
 
 ---
 
-# Lero: A Learning-to-Rank Query Optimizer
-Query optimizer is the core part, as well as the most challenging problem, in DBMS. 
-We witness that the relative order (or rank) of plans actually matters to optimizer. Learning the rough rank scores is much easier than the unique latency value. To this end, we design Lero, a new learned query optimizer system following the rank-based paradigm.  
-And this repository is a naive demo of Lero based on PostgreSQL. In the future, we will release a development framework that facilitates the integration of machine learning algorithms on the database while avoiding direct modifications to the source code, and then formally do the code refactoring of this project on it. 
+## 4. Reference from original Lero Documentation
 
----
-## Setup
+<details>
+<summary><b>Click to expand for key concepts from the original Lero documentation.</b></summary>
 
-This demo is based on a modified version of PostgreSQL 13.1, these are some related installation processes.
+### Learning-to-Rank Paradigm
 
-```bash
-# 1. download the PostgreSQL 13.1  
-wget https://ftp.postgresql.org/pub/source/v13.1/postgresql-13.1.tar.bz2
-tar -xvf postgresql-13.1.tar.bz2
+The core idea of Lero is that learning the relative order (or rank) of query plans is an easier and more robust machine learning task than predicting the absolute latency of each plan. By focusing on ranking, Lero aims to build a more effective learned optimizer.
 
-# 2. apply some modifications on it
-cd postgresql-13.1
-git apply ../0001-init-lero.patch
+### Modified PostgreSQL
 
-# 3. install PostgreSQL
-make
-make install
+Lero requires a modified version of PostgreSQL to communicate with its external server. The `Dockerfile` in this evaluation suite **already handles this for you**. It applies the necessary patch (`0001-init-lero.patch`) during the build process, so you do not need to manually download, patch, or compile PostgreSQL.
 
-# 4. modify the configuration of PostgreSQL in postgresql.conf
-listen_addresses = '*'
-geqo = off
-max_parallel_workers = 0
-max_parallel_workers_per_gather = 0
-```
----
+For more details on the original setup and architecture, please refer to the complete [`original_documentation.md`](original_documentation.md) file.
 
-## Run the Demo
-In this demo, we use an independent server to simulate most of the features of Lero.
-Lero is mainly composed of two stages:   
-
-1. generate different execution plans according to different policies  
-2. use a model to select an optimal execution plan
-
-For the convenience of demonstration, these two parts are put in the server. PostgreSQL completes the corresponding work by communicating with the server.
-
-
-### Start Server
-```bash
-python server.py
-```
-The port and host of the server are configured in the server.conf. 
-PostgreSQL uses the same preset port and host to communicate with the server.
-If you want to modify these two configurations, you need to execute two additional commands in PSQL every time you execute a query.
-```bash
-SET lero_server_host TO "new_host";
-SET lero_server_port TO new_port;
-```
-
-
-### Collect Plans and Re-train Model
-Here we use TPC-H queries in 1GB data set for demonstration (You can refer to this work ([tpch-dbgen](https://github.com/electrum/tpch-dbgen)) to create corresponding data set).  
-Relevant scripts are placed in "./test_script". 
-**And please modify the configurations in "config.py" before execution to ensure the script can correctly connect to the server and control the database.**
-
-Use the following command to start demo. 
-This script will load the training queries and test queries, and the model will be retrained every 'query_num_per_chunk' queries. Lero will collect performance on the test queries after each training phase.
-
-```bash
-# output_query_latency_file: the final executed plan will be output to this file
-# model_prefix: prefix of model name
-# topK: the number of plans that can be explored by each query
-python train_model.py --query_path tpch_train.txt --test_query_path tpch_test.txt --algo lero --query_num_per_chunk 20 --output_query_latency_file lero_tpch.log --model_prefix tpch_test_model --topK 3
-```
-Four kinds of files will be generated gradually during the execution of this script:
-1. lero_tpch.log  
-    The best plan considered by model in Lero will be executed and the results will be output to this file.
-2. lero_tpch.log_exploratory  
-    Other plans for pairwise training of each query will be executed and output to this file.
-3. lero_tpch.log.training  
-    Integrate the results of "lero_tpch.log" and "lero_tpch.log_exploratory" for model training.
-4. lero_tpch.log_tpch_test_model_i  
-    The performance of the model after i-th training.
-
-In order to compare the results, after Lero executes all the queries, we use PostgreSQL to execute them again.
-The plans of the training set and the test set will be saved in "pg_tpch_train.log" and "pg_tpch_test.log" respectively.
-```bash
-python train_model.py --query_path tpch_train.txt  --algo pg --output_query_latency_file pg_tpch_train.log
-python train_model.py --query_path tpch_test.txt --algo pg --output_query_latency_file pg_tpch_test.log
-```
-
-### Result Visualization
-Here we can use jupyter to easily visualize the results of the experiment (see visualization.ipynb for details).  
-In the training set, Lero will gradually surpass PostgreSQL after the first training.
-And in the test set, Lero runs 1.2x faster than PostgreSQL.
-<center class="half">
-    <img src="lero/test_script/train.jpg" width="200"/>
-    <img src="lero/test_script/test.jpg" width="200"/>
-</center>
-
-
-<!-- 
----
-## Paper Citation
-```bash
-TODO
-```
--->
-
----
-## Re-produce
-We also put some files here to help you reproduce the result of some experiments in paper. You can fine them in "lero/reproduce".  
-
-1. Create database  
-We dump the data of STATS to facilitate you to rebuild the database. (You can rebuild JOB by [join-order-benchmark](https://github.com/gregrahn/join-order-benchmark))
-```bash
-psql > CREATE DATABASE stats;
-psql -d stats -f stats_db.sql
-```
-
-2. Load Model  
-There are three trained models (imdb_pw, stats_pw and tpch_pw) available in the folder. You can modify the configuration file "server.conf" to load the corresponding model. We choose to load "stats_pw" here.
-```bash
-# in server.conf
-ModelPath = ./reproduce/stats_pw
-```
-
-3. Test the effect of the model  
-As in the previous example, we first need to start the server and set the corresponding script configuration.
-And then execute the script to collect the results of the model on the test set.
-```bash
-# start server
-python server.py
-# in conf.py
-...
-DB = stats
-...
-# execute the script
-python test.py --query_path ../reproduce/test/stats.txt --output_query_latency_file stats.test
-```
-
-
----
-Thanks for the implementation of ["Tree Convolution"](https://github.com/RyanMarcus/TreeConvolution).
+</details>
