@@ -29,47 +29,53 @@ All Lero commands must be run from a dedicated Conda environment.
 
 ## 2. Running Lero
 
-Lero uses a server-client model. You must start the Lero server in one terminal, then run training or testing scripts from a second terminal.
+This section provides general instructions for using the Lero optimizer.
 
-### Step 0: Configure Scripts
-Before running, you must configure two files:
-1.  **`lero/server.conf`:** This file configures the server, including the `ModelPath` for **testing/inference**.
-2.  **`lero/test_script/config.py`:** This file configures the client scripts, including the database connection details. **Ensure this is set correctly before proceeding.**
+### Pre-Run Workflow: Critical Instructions
 
-### General Training Command
-Training involves starting the server and then running the `train_model.py` script, which controls the training loop.
+**IMPORTANT:** Before running any Lero script, two manual configuration steps are required.
 
-1.  **Start the Lero Server:** In your first terminal:
+**1. Configure Lero-Patched PostgreSQL:**
+Lero requires a special PostgreSQL configuration to function. You must perform these steps on the Docker container running the database:
+1.  Connect to the running Docker container (e.g., `docker exec -it evaluation_suite bash`).
+2.  Navigate to the PostgreSQL data directory (e.g., `/app/db`).
+3.  Replace the standard configuration with the Lero-specific one:
     ```bash
-    # From the lero/ directory
-    python3 server.py
+    cp postgresql_lero.conf postgresql.conf
     ```
-2.  **Configure Training Script:** In your second terminal, **edit `lero/test_script/train_model.py`**. Modify the `self.checkpoint_dir` variable on line 63 to your desired output directory for saving checkpoints.
-3.  **Run Training:** In the second terminal:
-    ```bash
-    cd test_script
-    python3 train_model.py --query_dir <path/to/queries/> --output_query_latency_file <log_file.log> --model_prefix <model_name> [other_args...]
-    ```
-    *   `--query_dir`: Path to the training workload.
-    *   `--output_query_latency_file`: The log file for executed plan latencies.
-    *   `--model_prefix`: A prefix for the saved model checkpoint files.
+4.  Restart the PostgreSQL server to apply the changes. You can do this by running `pg_ctl restart -D /app/db` inside the container or by restarting the Docker container itself (`docker compose restart evaluation_suite`).
 
-### General Testing Command
-Testing involves configuring the server with a pre-trained model path, starting it, and then running the `test.py` script.
+**2. Configure Client Connection:**
+The scripts use a `.env` file in the repository root to manage database credentials. Before running any command, create a file named `.env` in the top-level directory of this project and populate it with your connection details. You can use the provided `.env.example` as a template.
 
-1.  **Configure Server:** **Edit the `lero/server.conf` file**. Set the `ModelPath` variable on line 8 to the path of your pre-trained model.
-2.  **Start the Lero Server:** In your first terminal:
-    ```bash
-    # From the lero/ directory
-    python3 server.py
-    ```
-3.  **Run Testing:** In a second terminal:
-    ```bash
-    cd test_script
-    python3 test.py --query_path <path/to/test/queries/> --output_query_latency_file <results_file.log>
-    ```
-    *   `--query_path`: Path to the directory containing the test queries.
-    *   `--output_query_latency_file`: The file where test results will be logged.
+**3. Server Management:**
+All scripts in this guide now **manage the Lero server automatically**. They will start the server before execution and shut it down afterward. Please ensure no other Lero server is running before you start an experiment to avoid port conflicts.
+
+### General Training Command (`train_model.py`)
+This script trains a new Lero model from scratch.
+
+```bash
+python3 train_model.py --query_dir <path/to/train/queries/> \
+                       --output_query_latency_file <path/to/results.log> \
+                       --model_prefix <model_name> \
+                       --target_checkpoint_dir <path/to/save/checkpoints/>
+```
+*   `--query_dir`: Path to the directory containing the training workload SQL files.
+*   `--output_query_latency_file`: The log file for executed plan latencies during training.
+*   `--model_prefix`: A prefix for the saved model files within the Lero server directory.
+*   `--target_checkpoint_dir`: The directory where the final trained model will be saved.
+
+### General Testing Command (`test.py`)
+This script evaluates a pre-trained Lero model.
+
+```bash
+python3 test.py --query_path <path/to/test/queries/> \
+                --output_query_latency_file <path/to/results.log> \
+                --checkpoint_dir <path/to/load/checkpoints/>
+```
+*   `--query_path`: Path to the directory containing the test queries.
+*   `--output_query_latency_file`: The file where test results will be logged.
+*   `--checkpoint_dir`: The directory containing the pre-trained model to evaluate.
 
 ---
 
